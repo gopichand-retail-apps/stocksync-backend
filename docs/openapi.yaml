@@ -1,0 +1,1165 @@
+openapi: 3.1.0
+info:
+  title: StockSync API
+  version: 1.0.0
+  license:
+    name: UNLICENSED
+  description: >-
+    Local synthetic-data inventory API. Production startup is disabled until
+    production session, database, TLS, and operational controls are designed.
+servers:
+  - url: http://127.0.0.1:5402/api/v1
+    description: Loopback-only local development API
+tags:
+  - name: Health
+    description: Process liveness and local service health.
+  - name: Authentication
+    description: Synthetic account sessions, CSRF tokens, and local role discovery.
+  - name: Inventory
+    description: Authorized locations, stock, overview, receipts, counts, and adjustments.
+  - name: Transfers
+    description: Manager-created transfers and authorized destination receipt.
+  - name: Reservations
+    description: Location-scoped stock reservations and release.
+  - name: Ledger
+    description: Read-only stock movement history.
+paths:
+  /version:
+    get:
+      tags: [Health]
+      operationId: getApplicationVersion
+      summary: Read the backend artifact version
+      security: []
+      responses:
+        '200':
+          description: API service name and SemVer release from the package manifest.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [service, version]
+                properties:
+                  service:
+                    const: stocksync-api
+                  version:
+                    type: string
+                    pattern: '^\\d+\\.\\d+\\.\\d+$'
+  /health:
+  /health:
+    get:
+      tags: [Health]
+      summary: Get API health
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: API process is responsive.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status, service]
+                properties:
+                  status:
+                    const: ok
+                  service:
+                    const: stocksync-api
+        '4XX':
+          $ref: '#/components/responses/ApiError'
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Create authenticated session
+      operationId: login
+      security: []
+      description: Creates a new server-side session and rotates the session identifier.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated user and CSRF token; session cookie is set.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedSession'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '429':
+          $ref: '#/components/responses/ApiError'
+
+  /auth/synthetic-roles:
+    get:
+      tags: [Authentication]
+      summary: List local synthetic role codes
+      operationId: listSyntheticRoles
+      description: >-
+        Development-only role discovery. Returns active role codes only; it does not expose
+        account identities or credentials and is hidden when NODE_ENV is production.
+      security: []
+      responses:
+        '200':
+          description: Active synthetic role codes; no account identities or credentials are returned.
+          content:
+            application/json:
+              schema:
+                type: array
+                minItems: 1
+                uniqueItems: true
+                items:
+                  $ref: '#/components/schemas/UserRole'
+        '404':
+          $ref: '#/components/responses/ApiError'
+
+  /auth/session:
+    get:
+      tags: [Authentication]
+      summary: Get current session
+      operationId: getSession
+      security: []
+      responses:
+        '200':
+          description: Current session, or null values when signed out.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '4XX':
+          $ref: '#/components/responses/ApiError'
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: End authenticated session
+      operationId: logout
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Session destroyed.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [loggedOut]
+                properties:
+                  loggedOut:
+                    const: true
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+
+  /locations:
+    get:
+      tags: [Inventory]
+      summary: List authorized locations
+      operationId: listLocations
+      description: Associates receive only their home location; managers and auditors can read all active locations.
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Locations visible to the authenticated role.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Location'
+        '401':
+          $ref: '#/components/responses/ApiError'
+
+  /inventory:
+    get:
+      tags: [Inventory]
+      summary: List filtered inventory
+      operationId: listInventory
+      description: Associates are scoped to their home location; managers and auditors may request any location.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: locationId
+          in: query
+          schema:
+            $ref: '#/components/schemas/Identifier'
+        - name: search
+          in: query
+          schema:
+            type: string
+            maxLength: 80
+        - name: category
+          in: query
+          schema:
+            type: string
+            maxLength: 80
+      responses:
+        '200':
+          description: Inventory rows within the caller's authorized location scope.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InventoryItem'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+
+  /inventory/categories:
+    get:
+      tags: [Inventory]
+      summary: List inventory categories
+      operationId: listInventoryCategories
+      description: Available to any authenticated role.
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Category identifiers in the current inventory catalog.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        '401':
+          $ref: '#/components/responses/ApiError'
+
+  /overview:
+    get:
+      tags: [Inventory]
+      summary: Get inventory overview
+      operationId: getOverview
+      description: Associates are scoped to their home location; managers and auditors may request any location.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: locationId
+          in: query
+          schema:
+            $ref: '#/components/schemas/Identifier'
+      responses:
+        '200':
+          description: Inventory metrics, low-stock rows, and recent activity.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Overview'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+
+  /ledger:
+    get:
+      tags: [Ledger]
+      summary: List stock ledger entries
+      operationId: listLedger
+      description: Associates are scoped to their home location; managers and auditors may request any location.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: locationId
+          in: query
+          schema:
+            $ref: '#/components/schemas/Identifier'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 40
+      responses:
+        '200':
+          description: Most recent ledger entries in the caller's authorized scope.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LedgerEntry'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+
+  /transfers:
+    get:
+      tags: [Transfers]
+      summary: List authorized transfers
+      operationId: listTransfers
+      description: Associates see transfers involving their home location; managers and auditors can read all transfers.
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Transfers visible to the authenticated role.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Transfer'
+        '401':
+          $ref: '#/components/responses/ApiError'
+    post:
+      tags: [Transfers]
+      summary: Create a stock transfer
+      operationId: createTransfer
+      description: Inventory managers only. Source and destination must be distinct and authorized locations.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransferRequest'
+      responses:
+        '201':
+          description: Stock moved into transit; source balance and ledger are committed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferResult'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+
+  /transfers/{id}/receive:
+    patch:
+      tags: [Transfers]
+      summary: Receive an in-transit transfer
+      operationId: receiveTransfer
+      description: Inventory managers may receive any transfer; associates may receive only at their home location.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: In-transit stock received at its destination.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceivedTransfer'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+
+  /receipts:
+    post:
+      tags: [Inventory]
+      summary: Receive stock
+      operationId: receiveStock
+      description: Associates and inventory managers may receive stock within their authorized location scope.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiveStockRequest'
+      responses:
+        '201':
+          description: Receipt and stock ledger entry committed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MutationResult'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+
+  /cycle-counts:
+    post:
+      tags: [Inventory]
+      summary: Reconcile a cycle count
+      operationId: reconcileCycleCount
+      description: Associates and inventory managers may reconcile counts within their authorized location scope.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CycleCountRequest'
+      responses:
+        '201':
+          description: Cycle count and any inventory variance committed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CycleCountResult'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+
+  /adjustments:
+    post:
+      tags: [Inventory]
+      summary: Adjust stock
+      operationId: adjustStock
+      description: Inventory managers only; an audit note is required.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdjustmentRequest'
+      responses:
+        '201':
+          description: Audited stock adjustment committed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MutationResult'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+
+  /reservations:
+    get:
+      tags: [Reservations]
+      summary: List active reservations
+      operationId: listReservations
+      description: Associates are scoped to their home location; managers and auditors may request any location.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: locationId
+          in: query
+          schema:
+            $ref: '#/components/schemas/Identifier'
+      responses:
+        '200':
+          description: Active reservations visible to the authenticated role.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Reservation'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+    post:
+      tags: [Reservations]
+      summary: Reserve stock
+      operationId: reserveStock
+      description: Associates and inventory managers may reserve stock within their authorized location scope.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReservationRequest'
+      responses:
+        '201':
+          description: Stock reservation committed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationResult'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+
+  /reservations/{id}/release:
+    patch:
+      tags: [Reservations]
+      summary: Release a reservation
+      operationId: releaseReservation
+      description: Associates may release a home-location reservation; inventory managers may release any reservation.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Active reservation released once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReleaseResult'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '403':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: stocksync.sid
+  parameters:
+    CsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Synchronizer token returned by login or session lookup.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: '^[A-Za-z0-9._:-]{16,128}$'
+      description: Unique key scoped to authenticated user and operation.
+  responses:
+    ApiError:
+      description: Stable API error response; internal exceptions do not expose stack traces.
+      headers:
+        X-Error-Code:
+          schema:
+            type: string
+        X-Request-ID:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+  schemas:
+    Identifier:
+      type: string
+      minLength: 1
+      maxLength: 80
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+    UserRole:
+      type: string
+      enum: [associate, inventory_manager, auditor]
+    SessionUser:
+      type: object
+      additionalProperties: false
+      required: [id, email, displayName, role, homeLocationId]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+        role:
+          $ref: '#/components/schemas/UserRole'
+        homeLocationId:
+          type: string
+    AuthenticatedSession:
+      type: object
+      additionalProperties: false
+      required: [user, csrfToken]
+      properties:
+        user:
+          $ref: '#/components/schemas/SessionUser'
+        csrfToken:
+          type: string
+    Session:
+      type: object
+      additionalProperties: false
+      required: [user, csrfToken]
+      properties:
+        user:
+          oneOf:
+            - $ref: '#/components/schemas/SessionUser'
+            - type: 'null'
+        csrfToken:
+          type: [string, 'null']
+    Location:
+      type: object
+      additionalProperties: false
+      required: [id, code, name, region]
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        region:
+          type: string
+    InventoryItem:
+      type: object
+      additionalProperties: false
+      required:
+        - skuId
+        - sku
+        - barcode
+        - name
+        - category
+        - unit
+        - threshold
+        - accent
+        - locationId
+        - locationCode
+        - locationName
+        - onHand
+        - reserved
+        - available
+        - version
+        - updatedAt
+      properties:
+        skuId:
+          type: string
+        sku:
+          type: string
+        barcode:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        unit:
+          type: string
+        threshold:
+          type: integer
+          minimum: 0
+        accent:
+          type: string
+        locationId:
+          type: string
+        locationCode:
+          type: string
+        locationName:
+          type: string
+        onHand:
+          type: integer
+          minimum: 0
+        reserved:
+          type: integer
+          minimum: 0
+        available:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+          minimum: 1
+        updatedAt:
+          type: string
+          format: date-time
+    LedgerEntry:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - locationId
+        - locationName
+        - skuId
+        - sku
+        - productName
+        - movementType
+        - quantityDelta
+        - referenceId
+        - note
+        - actorName
+        - createdAt
+      properties:
+        id:
+          type: string
+        locationId:
+          type: string
+        locationName:
+          type: string
+        skuId:
+          type: string
+        sku:
+          type: string
+        productName:
+          type: string
+        movementType:
+          type: string
+        quantityDelta:
+          type: integer
+        referenceId:
+          type: [string, 'null']
+        note:
+          type: [string, 'null']
+        actorName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    Overview:
+      type: object
+      additionalProperties: false
+      required: [metrics, lowStock, activity]
+      properties:
+        metrics:
+          type: object
+          additionalProperties: false
+          required: [skuCount, unitsOnHand, reservedUnits, lowStockCount, activeTransfers]
+          properties:
+            skuCount:
+              type: integer
+              minimum: 0
+            unitsOnHand:
+              type: integer
+              minimum: 0
+            reservedUnits:
+              type: integer
+              minimum: 0
+            lowStockCount:
+              type: integer
+              minimum: 0
+            activeTransfers:
+              type: integer
+              minimum: 0
+        lowStock:
+          type: array
+          items:
+            $ref: '#/components/schemas/InventoryItem'
+        activity:
+          type: array
+          items:
+            $ref: '#/components/schemas/LedgerEntry'
+    Transfer:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - skuId
+        - sku
+        - productName
+        - fromLocationId
+        - fromLocationName
+        - toLocationId
+        - toLocationName
+        - quantity
+        - status
+        - note
+        - createdBy
+        - createdAt
+        - receivedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        skuId:
+          type: string
+        sku:
+          type: string
+        productName:
+          type: string
+        fromLocationId:
+          type: string
+        fromLocationName:
+          type: string
+        toLocationId:
+          type: string
+        toLocationName:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum: [in_transit, received, cancelled]
+        note:
+          type: [string, 'null']
+        createdBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        receivedAt:
+          type: [string, 'null']
+          format: date-time
+    Reservation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - locationId
+        - locationName
+        - skuId
+        - sku
+        - productName
+        - quantity
+        - status
+        - note
+        - createdBy
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        locationId:
+          type: string
+        locationName:
+          type: string
+        skuId:
+          type: string
+        sku:
+          type: string
+        productName:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        status:
+          const: active
+        note:
+          type: [string, 'null']
+        createdBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    ReceiveStockRequest:
+      type: object
+      additionalProperties: false
+      required: [locationId, skuId, quantity]
+      properties:
+        locationId:
+          $ref: '#/components/schemas/Identifier'
+        skuId:
+          $ref: '#/components/schemas/Identifier'
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 100000
+        note:
+          type: string
+          maxLength: 180
+    CreateTransferRequest:
+      type: object
+      additionalProperties: false
+      required: [fromLocationId, toLocationId, skuId, quantity]
+      properties:
+        fromLocationId:
+          $ref: '#/components/schemas/Identifier'
+        toLocationId:
+          $ref: '#/components/schemas/Identifier'
+        skuId:
+          $ref: '#/components/schemas/Identifier'
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 100000
+        note:
+          type: string
+          maxLength: 180
+    CycleCountRequest:
+      type: object
+      additionalProperties: false
+      required: [locationId, skuId, expectedVersion, countedQuantity]
+      properties:
+        locationId:
+          $ref: '#/components/schemas/Identifier'
+        skuId:
+          $ref: '#/components/schemas/Identifier'
+        expectedVersion:
+          type: integer
+          minimum: 1
+        countedQuantity:
+          type: integer
+          minimum: 0
+          maximum: 100000
+    AdjustmentRequest:
+      type: object
+      additionalProperties: false
+      required: [locationId, skuId, delta, note]
+      properties:
+        locationId:
+          $ref: '#/components/schemas/Identifier'
+        skuId:
+          $ref: '#/components/schemas/Identifier'
+        delta:
+          type: integer
+          minimum: -100000
+          maximum: 100000
+          not:
+            const: 0
+        note:
+          type: string
+          minLength: 3
+          maxLength: 180
+    ReservationRequest:
+      type: object
+      additionalProperties: false
+      required: [locationId, skuId, quantity]
+      properties:
+        locationId:
+          $ref: '#/components/schemas/Identifier'
+        skuId:
+          $ref: '#/components/schemas/Identifier'
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 100000
+        note:
+          type: string
+          maxLength: 180
+    MutationResult:
+      type: object
+      additionalProperties: false
+      required: [id, locationId, skuId, quantity, onHand, version, movementType]
+      properties:
+        id:
+          type: string
+          format: uuid
+        locationId:
+          type: string
+        skuId:
+          type: string
+        quantity:
+          type: integer
+        onHand:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+          minimum: 1
+        movementType:
+          type: string
+    TransferResult:
+      type: object
+      additionalProperties: false
+      required: [id, skuId, fromLocationId, toLocationId, quantity, status, fromOnHand, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        skuId:
+          type: string
+        fromLocationId:
+          type: string
+        toLocationId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        status:
+          const: in_transit
+        fromOnHand:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+          minimum: 1
+    ReceivedTransfer:
+      type: object
+      additionalProperties: false
+      required: [id, locationId, skuId, quantity, status, onHand, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        locationId:
+          type: string
+        skuId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        status:
+          const: received
+        onHand:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+          minimum: 1
+    CycleCountResult:
+      type: object
+      additionalProperties: false
+      required: [id, locationId, skuId, expectedQuantity, countedQuantity, variance, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        locationId:
+          type: string
+        skuId:
+          type: string
+        expectedQuantity:
+          type: integer
+          minimum: 0
+        countedQuantity:
+          type: integer
+          minimum: 0
+        variance:
+          type: integer
+        version:
+          type: integer
+          minimum: 1
+    ReservationResult:
+      type: object
+      additionalProperties: false
+      required: [id, locationId, skuId, quantity, status, available, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        locationId:
+          type: string
+        skuId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        status:
+          const: active
+        available:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+          minimum: 1
+    ReleaseResult:
+      type: object
+      additionalProperties: false
+      required: [id, locationId, skuId, status, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        locationId:
+          type: string
+        skuId:
+          type: string
+        status:
+          const: released
+        version:
+          type: integer
+          minimum: 1
+    ApiError:
+      type: object
+      additionalProperties: false
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details: {}
+        requestId:
+          type: [string, 'null']
