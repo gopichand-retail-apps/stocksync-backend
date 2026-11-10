@@ -1,11 +1,25 @@
 # StockSync Backend
 
+[Architecture guide](docs/architecture.md) — source map, workflows, contracts, data, security, and checks.
+
+## Repository layout and deployment boundary
+
+This independent repository owns StockSync's NestJS / TypeScript API and authoritative PGlite state. The UI is the separate [stocksync-frontend](https://github.com/gopichand-retail-apps/stocksync-frontend) repository. Keep the current directory names, Git histories, origins, and independent builds.
+
+The Vercel configuration belongs to the frontend only. This API has no verified Vercel deployment adapter. The local file database is not shared durable storage for stateless function instances. Socket.IO also requires a compatible persistent connection host. Do not deploy the local simulator as a public API or point it at real records.
+
+Use Node **24.15.0**, npm, and the committed package-lock.json. From the full Retail Apps workspace, `./scripts/Start-Apps.ps1 -App StockSync` uses the correct built/native entry after setup. From this repository alone, build with npm.cmd run build, set $env:STOCKSYNC_START_SERVER='true', then run node dist/main.js.
+
+Health: http://127.0.0.1:5402/api/v1/health. Direct startup stores data under `data/stocksync`; the workspace launcher can select a separate app-owned path. The [API contract](docs/openapi.yaml) and [canonical architecture](docs/architecture.md) describe the existing routes and trust boundaries. The architecture guide is inside this repository.
+
+Known release gaps: The OpenAPI duplicate mapping is corrected. Archived npm start scripts still use Unix syntax. Production sessions, persistence, retry safety, and WebSocket hosting require separate validation.
+
 NestJS API for the StockSync multi-location inventory demo. This is a separate Git repository from the React frontend.
 
 ## Run locally
 
 ```sh
-npm install
+npm ci
 npm run start:dev
 ```
 

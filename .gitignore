@@ -7,3 +7,8 @@ data/
 !.env.example
 *.tsbuildinfo
 *.war
+
+# Local deployment metadata and private environment overrides
+.vercel/
+!.env.vercel.example
+*.log
