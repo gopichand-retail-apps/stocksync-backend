@@ -109,6 +109,44 @@ describe('AppController (e2e)', () => {
       .expect(201);
   });
 
+  it('replays a receipt only for the same authorized intent and changes stock once', async () => {
+    const manager = request.agent(app.getHttpServer());
+    const login = await manager
+      .post('/api/v1/auth/login')
+      .send({ email: 'manager@stocksync.test', password: 'stock-demo-only' })
+      .expect(200);
+    const key = 'e2e-stk01-receipt-replay';
+    const payload = { locationId: 'loc-central', skuId: 'sku-coffee', quantity: 12 };
+    const inventory = async () => {
+      const { body } = await manager.get('/api/v1/inventory?locationId=loc-central').expect(200);
+      const items: { skuId: string; onHand: number }[] = body;
+      const item = items.find((entry) => entry.skuId === payload.skuId);
+      if (!item) throw new Error('Expected the synthetic coffee balance');
+      return item;
+    };
+    const postReceipt = (quantity: number) =>
+      manager
+        .post('/api/v1/receipts')
+        .set('X-CSRF-Token', login.body.csrfToken)
+        .set('Idempotency-Key', key)
+        .send({ ...payload, quantity });
+
+    const before = await inventory();
+    const recorded = await postReceipt(payload.quantity).expect(201);
+    const replay = await postReceipt(payload.quantity).expect(201);
+    expect(replay.body).toEqual(recorded.body);
+    await postReceipt(payload.quantity + 1).expect(409);
+    expect((await inventory()).onHand).toBe(before.onHand + payload.quantity);
+    const { body } = await manager.get('/api/v1/ledger?locationId=loc-central').expect(200);
+    const movements: { referenceId: string | null }[] = body;
+    expect(movements.filter((entry) => entry.referenceId === key)).toEqual([
+      expect.objectContaining({ id: recorded.body.id, movementType: 'receipt', quantityDelta: payload.quantity }),
+    ]);
+
+    await manager.post('/api/v1/auth/logout').set('X-CSRF-Token', login.body.csrfToken).expect(200);
+    await postReceipt(payload.quantity).expect(401);
+  });
+
   it('serves the inventory views and completes the manager stock workflows', async () => {
     const manager = request.agent(app.getHttpServer());
     const login = await manager

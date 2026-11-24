@@ -146,6 +146,13 @@ sequenceDiagram
 
 Invalid authorization or schema input is rejected before the stock transaction. A transaction failure rolls back the balance, ledger row, and idempotency record together; replayed commands do not publish a second stock event.
 
+STK-01 verifies same-actor receipt replay through the existing HTTP contract. The controller
+checks session, role and CSRF, then the stock service checks location access before looking up
+the stored result. The PGlite transaction pairs the balance update and movement with the
+idempotency record. The movement ID is the receipt ID, and the intent key is its ledger
+`referenceId`. The HTTP test exercises identical replay, changed-payload HTTP 409 and
+replay after logout returning HTTP 401, with one movement and one balance increase.
+
 ## 6. Domain, persistence, and data ownership
 
 The API owns the current persistence boundary. Keep database engines, schema/migration order, exact-money rules where applicable, and transaction invariants consistent with executable source.
