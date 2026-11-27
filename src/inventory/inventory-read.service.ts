@@ -1,6 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service.js';
 import type { InventoryItem, LedgerEntry, LocationItem, ReservationItem, TransferItem } from './inventory.types.js';
+
+const ledgerSelect = `SELECT
+  entry.id, entry.location_id AS "locationId", location.name AS "locationName",
+  entry.sku_id AS "skuId", sku.sku, sku.name AS "productName",
+  entry.movement_type AS "movementType", entry.quantity_delta AS "quantityDelta",
+  entry.reference_id AS "referenceId", entry.note, actor.display_name AS "actorName",
+  entry.created_at AS "createdAt"
+  FROM stock_ledger entry
+  JOIN locations location ON location.id = entry.location_id
+  JOIN skus sku ON sku.id = entry.sku_id
+  JOIN users actor ON actor.id = entry.actor_id`;
 
 @Injectable()
 export class InventoryReadService {
@@ -89,21 +100,22 @@ export class InventoryReadService {
   async listLedger(locationId?: string, limit = 40): Promise<LedgerEntry[]> {
     const boundedLimit = Math.max(1, Math.min(limit, 100));
     const result = await this.database.query<LedgerEntry>(
-      `SELECT
-         entry.id, entry.location_id AS "locationId", location.name AS "locationName",
-         entry.sku_id AS "skuId", sku.sku, sku.name AS "productName",
-         entry.movement_type AS "movementType", entry.quantity_delta AS "quantityDelta",
-         entry.reference_id AS "referenceId", entry.note, actor.display_name AS "actorName",
-         entry.created_at AS "createdAt"
-       FROM stock_ledger entry
-       JOIN locations location ON location.id = entry.location_id
-       JOIN skus sku ON sku.id = entry.sku_id
-       JOIN users actor ON actor.id = entry.actor_id
+      `${ledgerSelect}
        WHERE ($1::text IS NULL OR entry.location_id = $1)
        ORDER BY entry.created_at DESC LIMIT $2`,
       [locationId ?? null, boundedLimit],
     );
     return result.rows;
+  }
+
+  async getLedgerMovement(id: string, locationId?: string): Promise<LedgerEntry> {
+    const result = await this.database.query<LedgerEntry>(
+      `${ledgerSelect} WHERE entry.id = $1 AND ($2::text IS NULL OR entry.location_id = $2)`,
+      [id, locationId ?? null],
+    );
+    const movement = result.rows[0];
+    if (!movement) throw new NotFoundException('Stock movement was not found');
+    return movement;
   }
 
   async listTransfers(locationId?: string): Promise<TransferItem[]> {

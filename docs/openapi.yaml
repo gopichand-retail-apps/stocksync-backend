@@ -47,7 +47,7 @@ paths:
                     const: stocksync-api
                   version:
                     type: string
-                    pattern: '^\\d+\\.\\d+\\.\\d+$'
+                    pattern: '^\d+\.\d+\.\d+$'
   /health:
     get:
       tags: [Health]
@@ -310,6 +310,39 @@ paths:
           $ref: '#/components/responses/ApiError'
         '403':
           $ref: '#/components/responses/ApiError'
+
+  /ledger/{id}:
+    get:
+      tags: [Ledger]
+      summary: Retrieve one stock movement by ID
+      operationId: getLedgerMovement
+      description: Returns an authorized movement even after it leaves the recent ledger list.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The matching stock movement.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerEntry'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          description: The movement is missing or outside the caller's location scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
 
   /transfers:
     get:

@@ -29,6 +29,10 @@ const CycleCountResultSchema = z.object({
 type MovementResult = z.infer<typeof MovementResultSchema>;
 type CycleCountResult = z.infer<typeof CycleCountResultSchema>;
 
+function staleCount() {
+  return new ConflictException({ code: 'COUNT_STALE', message: 'Stock changed; recount this item' });
+}
+
 @Injectable()
 export class InventoryStockService {
   constructor(
@@ -115,7 +119,7 @@ export class InventoryStockService {
         const current = await this.transactions.getBalance(tx, input.locationId, input.skuId);
         if (!current) throw new NotFoundException('Inventory item was not found');
         if (current.version !== input.expectedVersion) {
-          throw new ConflictException('Stock changed while the count was open; refresh before reconciling');
+          throw staleCount();
         }
         if (input.countedQuantity < current.reserved) {
           throw new ConflictException('Counted stock cannot be lower than units already reserved');
@@ -152,7 +156,7 @@ export class InventoryStockService {
           [input.locationId, input.skuId, input.countedQuantity, input.expectedVersion],
         );
         const balance = updated.rows[0];
-        if (!balance) throw new ConflictException('Stock changed; recount this item');
+        if (!balance) throw staleCount();
         await this.transactions.appendLedger(tx, {
           id: randomUUID(),
           locationId: input.locationId,

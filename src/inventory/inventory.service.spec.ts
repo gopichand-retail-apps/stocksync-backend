@@ -190,6 +190,34 @@ describe('InventoryService', () => {
     await expect(inventory.receiveTransfer(transfer.id, associate, key)).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('rechecks destination scope before replaying a transfer receipt for the same actor', async () => {
+    const transfer = await inventory.createTransfer(
+      { fromLocationId: 'loc-central', toLocationId: 'loc-north', skuId: 'sku-coffee', quantity: 1 },
+      manager,
+      'transfer-replay-current-scope-create',
+    );
+    const formerReceiver = { ...associate, homeLocationId: 'loc-north' };
+    const key = 'transfer-replay-current-scope-receive';
+    const received = await inventory.receiveTransfer(transfer.id, formerReceiver, key);
+    await expect(inventory.receiveTransfer(transfer.id, formerReceiver, key)).resolves.toEqual(received);
+    await expect(inventory.receiveTransfer(transfer.id, associate, key)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('rechecks location scope before replaying a reservation release for the same actor', async () => {
+    const formerOwner = { ...associate, homeLocationId: 'loc-north' };
+    const reservation = await inventory.reserveStock(
+      { locationId: 'loc-north', skuId: 'sku-coffee', quantity: 1 },
+      formerOwner,
+      'reservation-current-scope-create',
+    );
+    const key = 'reservation-current-scope-release';
+    const released = await inventory.releaseReservation(reservation.id, formerOwner, key);
+    await expect(inventory.releaseReservation(reservation.id, formerOwner, key)).resolves.toEqual(released);
+    await expect(inventory.releaseReservation(reservation.id, associate, key)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
   it('rejects a cycle count opened against a stale stock version', async () => {
     const original = (await inventory.listInventory({ locationId: 'loc-harbor' })).find(
       (row) => row.skuId === 'sku-tea',

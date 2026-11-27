@@ -35,6 +35,10 @@ export class InventoryService {
     return this.reads.listLedger(locationId, limit);
   }
 
+  getLedgerMovement(id: string, locationId?: string): Promise<LedgerEntry> {
+    return this.reads.getLedgerMovement(id, locationId);
+  }
+
   listTransfers(locationId?: string): Promise<TransferItem[]> {
     return this.reads.listTransfers(locationId);
   }
