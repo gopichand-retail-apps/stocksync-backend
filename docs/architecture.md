@@ -153,6 +153,20 @@ idempotency record. The movement ID is the receipt ID, and the intent key is its
 `referenceId`. The HTTP test exercises identical replay, changed-payload HTTP 409 and
 replay after logout returning HTTP 401, with one movement and one balance increase.
 
+`GET /api/v1/ledger/{id}` queries a single movement by UUID independently of
+the 40-row recent-history window. The lookup uses the session's associate location
+scope in the query and returns HTTP 404 for missing or out-of-scope movements.
+Managers and auditors retain their existing global read scope.
+
+Transfer receipt and reservation release recheck the session's location scope
+against the stored result before replay returns it. The controller also re-runs
+the session, role, and CSRF guards. Roles and home locations are snapshots made
+at login. Immediate session-role revocation and live membership enforcement require
+a separate design and verification before shared use.
+
+Stale cycle-count writes return HTTP 409 with `COUNT_STALE` so the frontend can
+fetch the current balance and request a new physical count.
+
 ## 6. Domain, persistence, and data ownership
 
 The API owns the current persistence boundary. Keep database engines, schema/migration order, exact-money rules where applicable, and transaction invariants consistent with executable source.
@@ -283,7 +297,16 @@ The two Git repositories remain separate. Each owns one maintained README and th
 
 ## 13. Dated verification and limitations
 
-Last documentation review: **2026-11-09**. The checks below distinguish documentation validation from application and deployment testing.
+The 24 November 2026 Stage B review corrections were verified locally on the
+working tree based on `96fbeb0df134`. Build, lint, formatting, 74 combined tests,
+and 13 dedicated HTTP tests passed. Combined coverage was 97.27% statements,
+91.39% branches, 96.29% functions, and 97.86% lines. The configured 95% per-file
+gates passed for inventory reads, stock mutation, and transfers. Reservation and
+idempotency transaction services each measured 94.44% branch coverage, under
+the broader 95% critical-code standard. Auth and session coverage gaps and
+live membership and session revocation are follow-ups for shared use.
+
+Historical documentation review: **2026-11-09**. The checks below distinguish documentation validation from application and deployment testing.
 
 - Repository-local guide, README link, source-path references, section/contents anchors, and Mermaid syntax: passed documentation validation.
 - New application tests/builds, coverage, dependency audits, browser/device accessibility/performance, hosted CI, and Vercel deployment: **not rerun for the documentation updates**.
@@ -318,8 +341,8 @@ npm run build
 npm audit --audit-level=high
 ```
 
-Latest frontend coverage passed 91 tests: 95.54% statements, 91.36% branches,
-91.80% functions, and 96.59% lines. Latest backend coverage passed 68 tests:
+The earlier documented frontend coverage passed 91 tests: 95.54% statements, 91.36% branches,
+91.80% functions, and 96.59% lines. The earlier backend coverage passed 68 tests:
 97.17% statements, 91.63% branches, 96.09% functions, and 97.78% lines. The
 aggregate 90% gates pass. Additional 95% frontend file gates cover mode
 selection, role mapping, login, and inventory-operation mapping; backend

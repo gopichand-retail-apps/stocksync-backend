@@ -66,8 +66,17 @@ Unit and HTTP e2e tests are both included in coverage runs. Test apps use isolat
 Receipt retries use the original `Idempotency-Key` and same payload. The server rechecks
 session, role, CSRF and location access, returns the original receipt on a matching replay,
 and returns HTTP 409 if the payload changes under the same scoped key. The API workflow
-tests verify the balance, ledger movement and rejection after logout.
+tests verify the balance, ledger movement and rejection after logout. Transfer
+receipt and reservation release also recheck location scope before returning a
+stored result. A stale cycle count returns `COUNT_STALE` so the form can fetch
+current stock and request a new count.
 
-The OpenAPI 3.1 contract is maintained in [`docs/openapi.yaml`](docs/openapi.yaml). Runtime request validation remains enforced by the API's strict Zod schemas.
+The OpenAPI 3.1 contract is maintained in [`docs/openapi.yaml`](docs/openapi.yaml).
+`GET /api/v1/ledger/{id}` returns an authorized movement by ID even after it leaves
+the recent results. Runtime request validation uses strict Zod schemas.
 
-Latest combined unit/e2e coverage passed 68 tests and measured 97.17% statements, 91.63% branches, 96.09% functions, and 97.78% lines. Per-file 95% gates cover inventory reads, stock mutation, and transfer operations. Stock mutation and transfer services now cover their conditional-update concurrency failures. Reservation/transaction services and auth guard/controller files remain below 95% branches because V8 attributes one uncovered branch to Nest decorators; this remains an explicit critical-coverage gap, not an approved exception. Full-development and production-only dependency audits report zero vulnerabilities for this repository.
+On 24 November 2026, the Stage B review corrections based on `96fbeb0df134`
+passed 74 tests in the combined suite and 13 in the dedicated HTTP suite.
+The configured coverage gates passed. See
+[dated verification](docs/architecture.md#13-dated-verification-and-limitations)
+for measured coverage and the remaining critical coverage gaps.

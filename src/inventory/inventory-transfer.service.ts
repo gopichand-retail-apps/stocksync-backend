@@ -180,7 +180,9 @@ export class InventoryTransferService {
       },
     });
 
-    if (!outcome.replayed) {
+    if (outcome.replayed) {
+      this.transactions.assertLocationAccess(user, outcome.value.locationId);
+    } else {
       this.events.publish({
         locationId: outcome.value.locationId,
         skuId: outcome.value.skuId,

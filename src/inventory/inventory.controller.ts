@@ -25,6 +25,7 @@ import {
   IdempotencyKeySchema,
   InventoryQuerySchema,
   LedgerQuerySchema,
+  LedgerMovementIdSchema,
   ReceiveStockSchema,
   ReservationIdSchema,
   ReservationSchema,
@@ -66,6 +67,12 @@ export class InventoryController {
   ledger(@CurrentUser() user: SessionUser, @Query() query: unknown) {
     const filters = parseInput(LedgerQuerySchema, query);
     return this.inventory.listLedger(this.scopedLocation(user, filters.locationId), filters.limit);
+  }
+
+  @Get('ledger/:id')
+  ledgerMovement(@CurrentUser() user: SessionUser, @Param('id') rawId: string) {
+    const id = parseInput(LedgerMovementIdSchema, rawId);
+    return this.inventory.getLedgerMovement(id, this.scopedLocation(user));
   }
 
   @Get('transfers')

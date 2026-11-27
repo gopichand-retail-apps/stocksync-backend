@@ -72,3 +72,4 @@ export const ReservationSchema = z
 export const IdempotencyKeySchema = z.string().regex(/^[A-Za-z0-9._:-]{16,128}$/);
 export const TransferIdSchema = z.string().uuid();
 export const ReservationIdSchema = z.string().uuid();
+export const LedgerMovementIdSchema = z.string().uuid();

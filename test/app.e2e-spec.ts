@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { readFile } from 'node:fs/promises';
 import session from 'express-session';
+import { format } from 'prettier';
 import request from 'supertest';
 import { SESSION_COOKIE_NAME } from './../src/auth/auth.controller.js';
 import { AppModule } from './../src/app.module.js';
@@ -44,6 +46,15 @@ describe('AppController (e2e)', () => {
       .get('/api/v1/health')
       .expect(200)
       .expect({ status: 'ok', service: 'stocksync-api' });
+  });
+
+  it('serves a version that matches the parsed OpenAPI pattern', async () => {
+    const contract = await format(await readFile('docs/openapi.yaml', 'utf8'), { parser: 'yaml' });
+    const versionPath = contract.split(/^ {2}\/version:\s*$/m)[1]?.split(/^ {2}\/\S+:\s*$/m)[0];
+    const pattern = /^\s+pattern: '([^']+)'$/m.exec(versionPath ?? '')?.[1];
+    if (!pattern) throw new Error('Missing the version response pattern in the OpenAPI contract');
+    const response = await request(app.getHttpServer()).get('/api/v1/version').expect(200);
+    expect(response.body.version).toMatch(new RegExp(pattern));
   });
 
   it('rejects anonymous inventory reads and returns the stable error envelope', async () => {
@@ -142,9 +153,34 @@ describe('AppController (e2e)', () => {
     expect(movements.filter((entry) => entry.referenceId === key)).toEqual([
       expect.objectContaining({ id: recorded.body.id, movementType: 'receipt', quantityDelta: payload.quantity }),
     ]);
+    await manager
+      .get(`/api/v1/ledger/${recorded.body.id}`)
+      .expect(200)
+      .expect(({ body: movement }) => {
+        expect(movement).toMatchObject({ id: recorded.body.id, locationId: payload.locationId });
+      });
 
     await manager.post('/api/v1/auth/logout').set('X-CSRF-Token', login.body.csrfToken).expect(200);
     await postReceipt(payload.quantity).expect(401);
+  });
+
+  it('scopes a direct ledger movement to the associate location', async () => {
+    const manager = request.agent(app.getHttpServer());
+    const associate = request.agent(app.getHttpServer());
+    await manager
+      .post('/api/v1/auth/login')
+      .send({ email: 'manager@stocksync.test', password: 'stock-demo-only' })
+      .expect(200);
+    await associate
+      .post('/api/v1/auth/login')
+      .send({ email: 'associate@stocksync.test', password: 'stock-demo-only' })
+      .expect(200);
+    const north = await manager.get('/api/v1/ledger?locationId=loc-north&limit=1').expect(200);
+    const central = await manager.get('/api/v1/ledger?locationId=loc-central&limit=1').expect(200);
+    await associate.get(`/api/v1/ledger/${central.body[0].id}`).expect(200, central.body[0]);
+    await associate.get(`/api/v1/ledger/${north.body[0].id}`).expect(404);
+    await associate.get('/api/v1/ledger/invalid').expect(400);
+    await request(app.getHttpServer()).get(`/api/v1/ledger/${central.body[0].id}`).expect(401);
   });
 
   it('serves the inventory views and completes the manager stock workflows', async () => {
